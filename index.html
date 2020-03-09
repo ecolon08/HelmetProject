@@ -1,0 +1,61 @@
+<!DOCTYPE HTML>
+
+<html>
+   <head>
+      
+     
+		
+   </head>
+   
+   <body>
+       <canvas id="canvas" width="800" height="800" style="border:1px solid #000000;">
+</canvas> 
+
+ <script type = "text/javascript">
+
+             var c = document.getElementById("canvas");
+	     var ctx = canvas.getContext('2d');
+            if ("WebSocket" in window) {
+               
+               // Let us open a web socket
+               var ws = new WebSocket("ws://localhost:9000");
+				
+               ws.onopen = function() {
+                
+               };
+				
+               ws.onmessage = function (evt) { 
+                  var received_msg = evt.data;
+                  var frame = JSON.parse(received_msg);
+                  var ImageData = ctx.createImageData(800,800);
+		  var data = ImageData.data
+                  for(var i = 0; i < 800; i++) {
+    			for(var j = 0; j < 800; j++) {
+       				 var s = 4 * i * ctx.canvas.width + 4 * j;
+      				  var x = frame[j][i];  // the RGB values
+     				   data[s] = x[0];
+      				  data[s + 1] = x[1];
+       				 data[s + 2] = x[2];
+       				 data[s + 3] = 255;  // fully opaque
+ 			   }
+		}
+		  ctx.putImageData(ImageData,0,0)
+                  frame = null
+                  received_msg = null
+                  ImageData = null
+                  data = null
+               };
+				
+               ws.onclose = function() { 
+                 
+               };
+            } else {
+              
+               // The browser doesn't support WebSocket
+               alert("WebSocket NOT supported by your Browser!");
+            }
+         
+      </script>
+
+   </body>
+</html>
