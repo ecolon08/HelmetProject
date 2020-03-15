@@ -7,15 +7,18 @@
 #include <Hash.h>
 #include <Scheduler.h>
 
-#define LED 16
+#define LED 0
 #define DELAY 300
 #define NUMPIXELS 9
-#define BUZZER 2
+#define BUZZERL 14
+#define BUZZERR 15
 
 
 Adafruit_NeoPixel pixels(NUMPIXELS, LED, NEO_GRB + NEO_KHZ800);
 ESP8266WiFiMulti WiFiMulti;
 WebSocketsClient webSocket;
+
+String jsonString;
 
 enum Notices {SAFE, WARN, DANGER, INIT};
 
@@ -31,10 +34,12 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_CONNECTED: {
         Serial.println("Connected to notice server");
         notice = SAFE;
+
+        webSocket.sendTXT(jsonString);
       }
       break;
     case WStype_TEXT: {
-        const size_t capacity = JSON_OBJECT_SIZE(2) + length;
+        const size_t capacity = JSON_OBJECT_SIZE(1) + length;
         DynamicJsonDocument doc(capacity);
         DeserializationError error = deserializeJson(doc, payload);
         if (error) {
@@ -44,8 +49,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           return;
         }
         int range = doc["range"].as<int>();
-        float distance = doc["distance"].as<float>();
-        Serial.printf("Range: %d\tDistance: %f\n", range, distance);
+        Serial.printf("Range: %d\n", range);
         if (range == 1) {
           notice = WARN;
           Serial.println("Mode set to WARN");
@@ -77,7 +81,7 @@ class WebSocketTask : public Task {
 
     void setup() {
 
-      webSocket.begin(WiFi.gatewayIP().toString(), 9001);
+      webSocket.begin(WiFi.gatewayIP().toString(), 9001, "/");
 
       webSocket.onEvent(webSocketEvent);
 
@@ -99,40 +103,45 @@ class NotifyTask : public Task {
       switch (notice) {
         case SAFE: {
             pixels.clear();
-            digitalWrite(BUZZER, 0);
+            digitalWrite(BUZZERL, 0);
+            digitalWrite(BUZZERR, 0);
             break;
           }
         case WARN: {
-            bool state = !digitalRead(BUZZER);
+            bool state = !digitalRead(BUZZERR);
             if (state) {
               pixels.fill(pixels.Color(255, 255, 0));
             }
             else {
               pixels.clear();
             }
-            digitalWrite(BUZZER, state);
+            digitalWrite(BUZZERL, state);
+            digitalWrite(BUZZERR, state);
             delay(DELAY);
             break;
           }
         case DANGER: {
-            bool state = !digitalRead(BUZZER);
+            bool state = !digitalRead(BUZZERR);
             if (state) {
               pixels.fill(pixels.Color(255, 0, 0));
             }
             else {
               pixels.clear();
             }
-            digitalWrite(BUZZER, state);
+            digitalWrite(BUZZERL, state);
+            digitalWrite(BUZZERR, state);
             delay(DELAY / 4);
             break;
           }
         default: {
             pixels.fill(pixels.Color(0, 0, 255));
-            digitalWrite(BUZZER, 0);
+            digitalWrite(BUZZERL, 0);
+            digitalWrite(BUZZERR, 0);
             break;
           }
 
       }
+      pixels.show();
     }
 
 
@@ -165,10 +174,18 @@ void setup() {
     Serial.flush();
     delay(1000);
   }
+  StaticJsonDocument<50> doc;
+  doc["role"] = "helmet";
+  serializeJson(doc, jsonString);
   pixels.begin();
-  pinMode(BUZZER, OUTPUT);
+  pinMode(BUZZERL, OUTPUT);
+  pinMode(BUZZERR, OUTPUT);
+
   pinMode(LED, OUTPUT);
-  WiFiMulti.addAP("MainFrame", "PEgO3Sa6");
+  WiFi.mode(WIFI_STA);
+  WiFiMulti.addAP("SmartBike");
+  pixels.fill(pixels.Color(0, 0, 255));
+  pixels.show();
   while (WiFiMulti.run() != WL_CONNECTED) {
     delay(100);
   }
