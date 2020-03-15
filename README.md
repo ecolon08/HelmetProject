@@ -9,9 +9,9 @@ detetct.py -- Revised class file for interacting with the Intel Realsense camera
 server.py -- Revised server for streaming gui and websocket messages.Tested with a laptop webcam.<br>
 index.html -- Experimental viewer for receiving video from Realsense camera in a browser<br>
 
-Installation<br>
+Install Dependencies:<br>
 <code>
-  sudo apt-get update<br>
-  sudo apt-get upgrade<br>
-  sudo pip3 install SimpleWebSocketServer<br>
+  sudo apt-get update;
+  sudo apt-get upgrade;
+  sudo pip3 install SimpleWebSocketServer;
 <code>
