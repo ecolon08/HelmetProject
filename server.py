@@ -1,134 +1,76 @@
-from websocket_server import WebsocketServer
-from detect import Detector
+from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 import threading
-import time
-import pygame
-import pygame.camera
-import numpy as np
-import sys
 import json
+import time
+import cv2
+import random
+import numpy as np
+from http.server import SimpleHTTPRequestHandler
+import ssl
+import socketserver
 
-# Called for every client connecting (after handshake)
-def new_client(client, server):
-	print("New client connected and was given id %d" % client['id'])
+class ClientHandler(WebSocket):
+    role = None
+    backend = None
+    def handleMessage(self):
+       parsed = None
+       try:
+           parsed = json.loads(self.data)
+       finally:
+           if parsed is not None and "role" in parsed.keys():
+               self.role = parsed["role"]
+               print("New client connected as %s"%self.role)
 
+    def handleConnected(self):
+       self.backend.clients.append(self)
 
-# Called for every client disconnecting
-def client_left(client, server):
-	print("Client(%d) disconnected" % client['id'])
+    def handleClose(self):
+       self.backend.clients.remove(self)
+       print(self.address, 'closed')
 
+class UIHandler(SimpleHTTPRequestHandler):
+            def log_message(self, format, *args):
+                return
+       
+class Backend:
+    def __init__(self,wsPort=9001,httpPort=80):
+        self.clients = []
+        handler = ClientHandler
+        handler.backend = self
+        self.wsServer = SimpleWebSocketServer('0.0.0.0', wsPort,handler )
+        self.httpServer = socketserver.TCPServer(('0.0.0.0', httpPort), UIHandler)
+        self.httpServer.socket = ssl.wrap_socket(self.httpServer.socket, server_side=True, certfile='cert.pem', keyfile='key.pem', ssl_version=ssl.PROTOCOL_TLSv1_2)
+        self.zone = "init"
+        
+    def online(self):
+        try:
+            threading.Thread(target=self.wsServer.serveforever,daemon=True).start()
+            threading.Thread(target=self.httpServer.serve_forever,daemon=True).start()
+            return True
+        except:
+            return False
+    def sendFrame(self,frame):
+        [client.sendMessage(frame) for client in self.clients if client.role == "viewer"]
 
-# Called when a client sends a message
-def message_received(client, server, message):
-	print("Client(%d) said %s" % client['id'],message)
+    def setZone(self,zone):
+        assert zone is int and zone in range(0,2)
+        self.zone = zone
 
-def new_viewer(client, server):
-	print("New client connected and was given id %d" % client['id'])
-
-def viewer_left(client, server):
-	print("Client(%d) disconnected" % client['id'])
-
-
-def viewer_message(client,server,message):
-	print("Client(%d) said %s" % client['id'],message)
-	
-
-PORT=9001
-server = WebsocketServer(PORT,host="0.0.0.0")
-server.set_fn_new_client(new_client)
-server.set_fn_client_left(client_left)
-server.set_fn_message_received(message_received)
-
-VIDEO_PORT = 9000
-video_server = WebsocketServer(VIDEO_PORT,host="0.0.0.0")
-video_server.set_fn_new_client(new_viewer)
-video_server.set_fn_client_left(viewer_left)
-video_server.set_fn_message_received(viewer_message)
-
-detector = Detector(server)
-pygame.init()
-#screen = pygame.display.set_mode(flags=pygame.FULLSCREEN)
-screen = pygame.display.set_mode((800,800))
-X,Y = pygame.display.get_surface().get_size()
-
-def displayFrame(frame):
-    surface = pygame.surfarray.make_surface(frame) 
-    screen.blit(surface, (0, 0))
-
-
-def displayText(string,center=(X // 2, Y // 2),color=(0,255,0),size=32):
-    font = pygame.font.Font('freesansbold.ttf', size) 
-    text = font.render(string, True,color )
-    textRect = text.get_rect()  
-    textRect.center = center
-    screen.blit(text, textRect) 
-
-
-def overlayRect(w,h,c=None,color=None):
-    rect = pygame.Rect(0,0,0,0)
-    rect.width = w
-    rect.height = h
-    if c is None:
-        rect.center = (X // 2, Y // 2)
-    else:
-        rect.center = c
-    if color is None:
-        color = (0,0,255)
-    pygame.draw.rect(screen,color,rect,3)
-
-
-def event_check():
-    for e in pygame.event.get():
-        if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE: 
-            displayText("System is shutting down...")
-            camera.stop()
-            detector.cleanup()
-            sys.exit()
-
-pygame.display.set_caption('Smart Helmet')
-pygame.mouse.set_visible(1)
-displayText("System initializing...")
-t = threading.Thread(target=server.run_forever, daemon = True).start()
-v = threading.Thread(target=video_server.run_forever, daemon = True).start()
-attempts = 0
-target_size = round((detector.box_width*X) / detector.width)
-pygame.display.update()
-time.sleep(1.5)
-screen.fill(0)
-pygame.camera.init()
-print(pygame.camera.list_cameras())
-DEVICE = pygame.camera.list_cameras()[0]
-SIZE = (X,Y)
-camera = pygame.camera.Camera(DEVICE, SIZE)
-camera.start()
-detector.is_streaming = True
-
-while True:
-    if not detector.is_streaming:
-        screen.fill(0)
-        attempts += 1
-        displayText("Camera offline. Attempting to start..."+str(attempts))
-        overlayRect(target_size,target_size)
-        displayText("Average Distance:  {} feet".format(10),center=(round(X*0.33), round(Y*0.9)),size=32)
-        #detector.startStream()
-    else:
-        attempts = 0
-        #frame_dict = detector.getFrame()
-        #frame = frame_dict["image"]
-        #color = frame_dict["color"]
-        if camera.query_image():
-            picture = camera.get_image()
-            picture = pygame.transform.scale(picture, SIZE)
-            screen.blit(picture,(0,0))
-            #frame = pygame.surfarray.array3d(surf)
-            #displayFrame(frame) 
-            overlayRect(target_size,target_size)
-            displayText("Average Distance:  {} feet".format(10),center=(X//4, round(Y*0.9)),size=64)
-    pygame.display.update()
-    if len(video_server.clients)>0:
-        outgoing = pygame.surfarray.array3d(screen)
-        video_server.send_message_to_all(json.dumps(outgoing.tolist()))
-
-    event_check()
-
-
+    def notifyHelmet(self):
+        while True:
+            try:
+                msg = json.dumps({"range":self.zone})
+                [client.sendMessage(msg) for client in self.clients if client.role == "helmet"]
+                time.sleep(0.3)
+            except:
+                pass
+        
+if __name__ == "__main__":
+    cam = cv2.VideoCapture(0)
+    backend = Backend()
+    if backend.online():
+        while True:
+            ready, test = cam.read()
+            if ready:
+                frame = cv2.cvtColor(test, cv2.COLOR_BGR2RGBA)
+                backend.sendFrame(frame.tobytes())
