@@ -1,13 +1,14 @@
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
-import threading
+from threading import Thread
+from multiprocessing import Process, Queue
 import json
 import time
 import cv2
-import random
 import numpy as np
 from http.server import SimpleHTTPRequestHandler
 import ssl
 import socketserver
+import random
 
 class ClientHandler(WebSocket):
     role = None
@@ -35,36 +36,56 @@ class UIHandler(SimpleHTTPRequestHandler):
 class Backend:
     def __init__(self,wsPort=9001,httpPort=80):
         self.clients = []
+
         handler = ClientHandler
         handler.backend = self
         self.wsServer = SimpleWebSocketServer('0.0.0.0', wsPort,handler )
         self.httpServer = socketserver.TCPServer(('0.0.0.0', httpPort), UIHandler)
         self.httpServer.socket = ssl.wrap_socket(self.httpServer.socket, server_side=True, certfile='cert.pem', keyfile='key.pem', ssl_version=ssl.PROTOCOL_TLSv1_2)
-        self.zone = "init"
+        self.zone = 0
+        self.q = Queue()
+
+
         
     def online(self):
         try:
-            threading.Thread(target=self.wsServer.serveforever,daemon=True).start()
-            threading.Thread(target=self.httpServer.serve_forever,daemon=True).start()
+            Process(target=self.wsLoop,daemon=True).start()
+            Process(target=self.httpServer.serve_forever,daemon=True).start()
+            print("Backend Online")
             return True
-        except:
+        except Exception as e:
+            print(e)
             return False
-    def sendFrame(self,frame):
-        [client.sendMessage(frame) for client in self.clients if client.role == "viewer"]
 
-    def setZone(self,zone):
-        assert zone is int and zone in range(0,2)
-        self.zone = zone
+    def sendFrame(self,frame):
+        assert type(frame) is np.ndarray
+        packed = cv2.imencode(".jpeg",frame)[1]
+        [client.sendMessage(packed) for client in self.clients if client.role == "viewer"]
+    
+    def wsLoop(self):
+        Thread(target=self.notifyHelmet,daemon=True).start()
+        while True:
+            if not self.q.empty():
+                n = self.q.get()
+                if isinstance(n,np.ndarray):
+                    self.sendFrame(n)
+                elif isinstance(n,int):
+                    self.zone = n 
+            self.wsServer.serveonce()               
+
 
     def notifyHelmet(self):
+
         while True:
             try:
                 msg = json.dumps({"range":self.zone})
                 [client.sendMessage(msg) for client in self.clients if client.role == "helmet"]
                 time.sleep(0.3)
             except:
-                pass
+                print("Error notifying helmet")
         
+
+
 if __name__ == "__main__":
     cam = cv2.VideoCapture(0)
     backend = Backend()
@@ -72,5 +93,9 @@ if __name__ == "__main__":
         while True:
             ready, test = cam.read()
             if ready:
-                frame = cv2.cvtColor(test, cv2.COLOR_BGR2RGBA)
-                backend.sendFrame(frame.tobytes())
+                frame = cv2.cvtColor(test, cv2.COLOR_RGB2RGBA)
+                dummyRange = random.choice([0,1,2])
+                backend.q.put(frame)
+                backend.q.put(dummyRange)
+                
+   
