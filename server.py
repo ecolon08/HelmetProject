@@ -1,6 +1,6 @@
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 from threading import Thread
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Pipe
 import json
 import time
 import cv2
@@ -36,20 +36,19 @@ class UIHandler(SimpleHTTPRequestHandler):
 class Backend:
     def __init__(self,wsPort=9001,httpPort=80):
         self.clients = []
-
         handler = ClientHandler
         handler.backend = self
         self.wsServer = SimpleWebSocketServer('0.0.0.0', wsPort,handler )
         self.httpServer = socketserver.TCPServer(('0.0.0.0', httpPort), UIHandler)
         self.httpServer.socket = ssl.wrap_socket(self.httpServer.socket, server_side=True, certfile='cert.pem', keyfile='key.pem', ssl_version=ssl.PROTOCOL_TLSv1_2)
         self.zone = 0
-        self.q = Queue()
+        self.p = Pipe()
 
 
         
     def online(self):
         try:
-            Process(target=self.wsLoop,daemon=True).start()
+            Process(target=self.wsLoop,args=(self.p[1],),daemon=True).start()
             Process(target=self.httpServer.serve_forever,daemon=True).start()
             print("Backend Online")
             return True
@@ -62,15 +61,14 @@ class Backend:
         packed = cv2.imencode(".jpeg",frame)[1]
         [client.sendMessage(packed) for client in self.clients if client.role == "viewer"]
     
-    def wsLoop(self):
+    def wsLoop(self,conn):
         Thread(target=self.notifyHelmet,daemon=True).start()
         while True:
-            if not self.q.empty():
-                n = self.q.get()
-                if isinstance(n,np.ndarray):
-                    self.sendFrame(n)
-                elif isinstance(n,int):
-                    self.zone = n 
+            n = conn.recv()
+            if isinstance(n,np.ndarray):
+                self.sendFrame(n)
+            elif isinstance(n,int):
+                self.zone = n 
             self.wsServer.serveonce()               
 
 
@@ -95,7 +93,7 @@ if __name__ == "__main__":
             if ready:
                 frame = cv2.cvtColor(test, cv2.COLOR_RGB2RGBA)
                 dummyRange = random.choice([0,1,2])
-                backend.q.put(frame)
-                backend.q.put(dummyRange)
+                backend.p[0].send(frame)
+                backend.p[0].send(dummyRange)
                 
    
