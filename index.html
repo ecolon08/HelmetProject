@@ -15,8 +15,6 @@ z-index: 3;
 #ui {
 background-color: transparent;
 position: absolute; 
-height: 100%;
-width: 100%;
 z-index: 2;
 }
 #video-feed { 
@@ -30,15 +28,13 @@ z-index: 1;
 </head>
 
 <body>
-<canvas id="video-feed">
-</canvas> 
+<image id="video-feed">Video Feed Unavailable</image>
 <canvas id="ui">
 </canvas> 
 <div id="map"></div>
 
 <script type = "text/javascript">
 var map, infoWindow;
-var colors = ["green","yellow","red"];
 function initMap() {
 map = new google.maps.Map(document.getElementById('map'), {
 center: {lat: 40.838216, lng: -73.938533},
@@ -78,27 +74,18 @@ infoWindow.open(map);
 var feed = document.getElementById("video-feed");
 var ui = document.getElementById("ui");
 
-var feedContext = feed.getContext('2d');
-feedContext.canvas.width  = window.innerWidth;
-feedContext.canvas.height = window.innerHeight;
-
 var uiContext = ui.getContext('2d');
 uiContext.canvas.width  = window.innerWidth;
 uiContext.canvas.height = window.innerHeight;
 
 if ("WebSocket" in window) {
 
-// Let us open a web socket
 var ws = new WebSocket("ws://localhost:9001");
 ws.binaryType = "arraybuffer";
 ws.onopen = function() {
 ws.send(JSON.stringify({role:"viewer"}));
 ui.addEventListener('click', function (event) {
 
-
-
-// If there's an element in fullscreen, exit
-// Otherwise, enter it
 if (document.fullscreenElement) {
 document.exitFullscreen();
 } else {
@@ -110,14 +97,10 @@ document.documentElement.requestFullscreen();
 };
 
 ws.onmessage = function (evt) { 
-var imageData = feedContext.getImageData(0,0,640, 480);
-  var pixels = imageData.data;
-  var buffer = new Uint8Array(evt.data);
-  for (var i=0; i < pixels.length; i++) {
-    pixels[i] = buffer[i];
-  }
-  feedContext.putImageData(imageData, feed.width/2,feed.height/2);
-
+var arrayBuffer = evt.data;
+var blob  = new Blob([new Uint8Array(arrayBuffer)], {type: "image/jpeg"});
+feed.src = window.URL.createObjectURL(blob);
+window.URL.revokeObjectURL(feed.src);
 };
 
 ws.onclose = function() { 
