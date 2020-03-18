@@ -97,10 +97,10 @@ document.documentElement.requestFullscreen();
 };
 
 ws.onmessage = function (evt) { 
+window.URL.revokeObjectURL(feed.src);
 var arrayBuffer = evt.data;
 var blob  = new Blob([new Uint8Array(arrayBuffer)], {type: "image/jpeg"});
 feed.src = window.URL.createObjectURL(blob);
-window.URL.revokeObjectURL(feed.src);
 };
 
 ws.onclose = function() { 
